@@ -1,0 +1,652 @@
+"""
+graphics.py
+===========
+Flat-geometric diagrams that illustrate the key concepts from Chapter 5
+of *AI-Powered Search*. Each function renders one figure as a PNG.
+
+Style guidelines:
+    - White background.
+    - Three colors max per figure (navy / teal / coral, soft variants OK).
+    - No axis spines, no grid, no chart-chrome.
+    - Rounded rectangles for nodes.
+    - Bold sans-serif labels.
+    - Generous whitespace.
+"""
+
+from __future__ import annotations
+
+import math
+from pathlib import Path
+
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+from matplotlib.patches import (
+    Circle,
+    FancyArrowPatch,
+    FancyBboxPatch,
+    Rectangle,
+)
+
+# ---------------------------------------------------------------------------
+# Palette
+# ---------------------------------------------------------------------------
+
+NAVY = "#1a1a2e"
+TEAL = "#00796B"
+TEAL_SOFT = "#B2DFDB"
+TEAL_BG = "#E0F2F1"
+CORAL = "#E76F51"
+CORAL_SOFT = "#FAD2C7"
+GRAY = "#9E9E9E"
+GRAY_SOFT = "#F0F0F0"
+INK = "#212121"
+WHITE = "#FFFFFF"
+
+# ---------------------------------------------------------------------------
+# Drawing primitives
+# ---------------------------------------------------------------------------
+
+def _setup_ax(figsize=(10, 6), xlim=(0, 10), ylim=(0, 6)):
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.set_xlim(*xlim)
+    ax.set_ylim(*ylim)
+    ax.set_aspect("equal")
+    ax.axis("off")
+    return fig, ax
+
+
+def _node(ax, x, y, w, h, label, fill=TEAL_BG, edge=TEAL, text=INK,
+          font_size=11, bold=True, line_width=2.0):
+    """Rounded-rectangle node."""
+    patch = FancyBboxPatch(
+        (x - w / 2, y - h / 2), w, h,
+        boxstyle="round,pad=0.04,rounding_size=0.18",
+        linewidth=line_width, facecolor=fill, edgecolor=edge,
+    )
+    ax.add_patch(patch)
+    ax.text(
+        x, y, label,
+        ha="center", va="center",
+        fontsize=font_size,
+        fontweight="bold" if bold else "normal",
+        color=text,
+    )
+
+
+def _edge(ax, x1, y1, x2, y2, label=None, color=GRAY, lw=1.8, label_color=TEAL,
+          label_font_size=9, label_offset=(0, 0.15), arrow_style="-"):
+    arrow = FancyArrowPatch(
+        (x1, y1), (x2, y2),
+        arrowstyle=arrow_style,
+        color=color, linewidth=lw,
+        mutation_scale=12,
+    )
+    ax.add_patch(arrow)
+    if label:
+        mx = (x1 + x2) / 2 + label_offset[0]
+        my = (y1 + y2) / 2 + label_offset[1]
+        ax.text(
+            mx, my, label,
+            ha="center", va="center",
+            fontsize=label_font_size,
+            color=label_color, fontstyle="italic",
+        )
+
+
+def _arrow(ax, x1, y1, x2, y2, color=NAVY, lw=2, head=12):
+    arrow = FancyArrowPatch(
+        (x1, y1), (x2, y2),
+        arrowstyle="-|>", color=color, linewidth=lw,
+        mutation_scale=head,
+    )
+    ax.add_patch(arrow)
+
+
+def _title(ax, text, y=None, font_size=13, color=NAVY):
+    if y is None:
+        y = ax.get_ylim()[1] - 0.3
+    ax.text(
+        (ax.get_xlim()[0] + ax.get_xlim()[1]) / 2, y, text,
+        ha="center", va="top", fontsize=font_size, fontweight="bold",
+        color=color,
+    )
+
+
+def _save(fig, out: Path, dpi=220):
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out, dpi=dpi, bbox_inches="tight",
+                facecolor="white", edgecolor="none")
+    plt.close(fig)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Figure 1 — A sample knowledge graph
+# ---------------------------------------------------------------------------
+
+def fig_sample_kg(out: Path) -> Path:
+    """A small graph showing variety of node types and edge labels."""
+    fig, ax = _setup_ax(figsize=(10, 5.5), xlim=(0, 10), ylim=(0, 6))
+
+    nodes = {
+        "Star Wars":     (5, 5,   1.7, 0.7),
+        "Luke":          (1.7, 3, 1.2, 0.6),
+        "Leia":          (8.3, 3, 1.2, 0.6),
+        "Tatooine":      (1.7, 1, 1.5, 0.6),
+        "Mark Hamill":   (5, 1,   1.8, 0.6),
+    }
+
+    edges = [
+        ("Star Wars", "Luke",        "features"),
+        ("Star Wars", "Leia",        "features"),
+        ("Luke",      "Tatooine",    "lives on"),
+        ("Mark Hamill", "Luke",      "plays"),
+        ("Luke",      "Leia",        "sibling of"),
+    ]
+
+    for u, v, lbl in edges:
+        x1, y1 = nodes[u][0], nodes[u][1]
+        x2, y2 = nodes[v][0], nodes[v][1]
+        _edge(ax, x1, y1, x2, y2, label=lbl)
+
+    for name, (x, y, w, h) in nodes.items():
+        # color movie node differently
+        fill, edge = (TEAL_BG, TEAL)
+        if name == "Star Wars":
+            fill, edge = (CORAL_SOFT, CORAL)
+        _node(ax, x, y, w, h, name, fill=fill, edge=edge, font_size=11)
+
+    return _save(fig, out)
+
+
+# ---------------------------------------------------------------------------
+# Figure 2 — Three ways to build a knowledge graph
+# ---------------------------------------------------------------------------
+
+def fig_three_ways(out: Path) -> Path:
+    """Three columns: hand-built, plug-in, autogenerated. Each with an icon."""
+    fig, ax = _setup_ax(figsize=(10, 5.5), xlim=(0, 12), ylim=(0, 6))
+
+    cols = [
+        {
+            "x": 2, "title": "By hand",
+            "lines": ["Domain experts", "type in every", "node and edge."],
+            "color": CORAL, "soft": CORAL_SOFT,
+            "icon": "tool",
+        },
+        {
+            "x": 6, "title": "Plug in existing",
+            "lines": ["Use a public", "graph someone", "else built."],
+            "color": GRAY, "soft": GRAY_SOFT,
+            "icon": "books",
+        },
+        {
+            "x": 10, "title": "Autogenerate",
+            "lines": ["Search engine", "infers structure", "from your text."],
+            "color": TEAL, "soft": TEAL_BG,
+            "icon": "gear",
+        },
+    ]
+
+    for col in cols:
+        cx = col["x"]
+        # Column card
+        card = FancyBboxPatch(
+            (cx - 1.6, 0.6), 3.2, 4.6,
+            boxstyle="round,pad=0.04,rounding_size=0.2",
+            linewidth=2, facecolor=col["soft"], edgecolor=col["color"],
+        )
+        ax.add_patch(card)
+
+        # Icon as a simple geometric stamp
+        ic = col["icon"]
+        if ic == "tool":
+            # hammer-ish: head + handle
+            ax.add_patch(Rectangle((cx - 0.4, 4.3), 0.8, 0.3,
+                                    facecolor=col["color"], edgecolor="none"))
+            ax.add_patch(Rectangle((cx - 0.08, 3.5), 0.16, 0.8,
+                                    facecolor=col["color"], edgecolor="none"))
+        elif ic == "books":
+            for i, dx in enumerate([-0.45, -0.15, 0.15, 0.4]):
+                ax.add_patch(Rectangle((cx + dx - 0.08, 3.55), 0.16, 0.95 - 0.05 * i,
+                                        facecolor=col["color"], edgecolor="none"))
+        elif ic == "gear":
+            # simple gear: filled circle with spokes
+            ax.add_patch(Circle((cx, 4.05), 0.45,
+                                 facecolor=col["color"], edgecolor="none"))
+            ax.add_patch(Circle((cx, 4.05), 0.15,
+                                 facecolor="white", edgecolor="none"))
+            for ang in range(0, 360, 60):
+                a = math.radians(ang)
+                ax.add_patch(Rectangle(
+                    (cx - 0.08, 4.05 - 0.08), 0.16, 0.16,
+                    facecolor=col["color"], edgecolor="none",
+                    transform=ax.transData,
+                ))
+
+        # Title
+        ax.text(cx, 3.05, col["title"], ha="center", va="center",
+                fontsize=14, fontweight="bold", color=col["color"])
+        # Body
+        for i, line in enumerate(col["lines"]):
+            ax.text(cx, 2.5 - i * 0.4, line, ha="center", va="center",
+                    fontsize=10.5, color=INK)
+
+    return _save(fig, out)
+
+
+# ---------------------------------------------------------------------------
+# Figure 3 — Inverted index
+# ---------------------------------------------------------------------------
+
+def fig_inverted_index(out: Path) -> Path:
+    fig, ax = _setup_ax(figsize=(10, 5), xlim=(0, 10), ylim=(0, 5.5))
+    _title(ax, "Inverted index: term → documents", font_size=14)
+
+    # Left column: terms
+    terms = [("advil",   4.0),
+             ("headache", 2.8),
+             ("pregnancy", 1.6)]
+    for term, y in terms:
+        _node(ax, 2.0, y, 2.0, 0.6, term, fill=CORAL_SOFT, edge=CORAL)
+
+    # Right column: doc IDs (clusters)
+    doc_clusters = {
+        "advil":     [("doc 12", 7), ("doc 47", 8), ("doc 92", 9)],
+        "headache":  [("doc 12", 6), ("doc 47", 7), ("doc 71", 8), ("doc 88", 9)],
+        "pregnancy": [("doc 03", 7), ("doc 27", 8), ("doc 71", 9)],
+    }
+    ys = [4.0, 2.8, 1.6]
+    for i, (term, _) in enumerate(terms):
+        y = ys[i]
+        docs = doc_clusters[term]
+        for j, (d, x) in enumerate(docs):
+            _node(ax, x, y, 0.95, 0.5, d,
+                  fill=TEAL_BG, edge=TEAL, font_size=9.5)
+            if j == 0:
+                _arrow(ax, 3.1, y, 6.4, y, color=NAVY, lw=1.5)
+
+    # subtitle
+    ax.text(5, 0.3,
+            "For each term, the engine knows which documents contain it.",
+            ha="center", fontsize=10, color=GRAY, fontstyle="italic")
+
+    return _save(fig, out)
+
+
+# ---------------------------------------------------------------------------
+# Figure 4 — Forward index
+# ---------------------------------------------------------------------------
+
+def fig_forward_index(out: Path) -> Path:
+    fig, ax = _setup_ax(figsize=(10, 5), xlim=(0, 10), ylim=(0, 5.5))
+    _title(ax, "Forward index: document → terms", font_size=14)
+
+    # Left column: documents
+    docs = [("doc 12", 4.0), ("doc 47", 2.8), ("doc 71", 1.6)]
+    for d, y in docs:
+        _node(ax, 2.0, y, 2.0, 0.6, d, fill=TEAL_BG, edge=TEAL)
+
+    # Right column: term clusters
+    term_clusters = {
+        "doc 12": [("advil", 6.7), ("headache", 7.8), ("dose", 8.9)],
+        "doc 47": [("advil", 6.7), ("headache", 7.8), ("relief", 8.9)],
+        "doc 71": [("headache", 6.7), ("pregnancy", 8.0), ("trimester", 9.3)],
+    }
+    ys = [4.0, 2.8, 1.6]
+    for i, (d, _) in enumerate(docs):
+        y = ys[i]
+        terms = term_clusters[d]
+        for j, (t, x) in enumerate(terms):
+            _node(ax, x, y, 1.05, 0.5, t,
+                  fill=CORAL_SOFT, edge=CORAL, font_size=9.5)
+            if j == 0:
+                _arrow(ax, 3.1, y, 6.1, y, color=NAVY, lw=1.5)
+
+    ax.text(5, 0.3,
+            "For each document, the engine knows which terms appear in it.",
+            ha="center", fontsize=10, color=GRAY, fontstyle="italic")
+
+    return _save(fig, out)
+
+
+# ---------------------------------------------------------------------------
+# Figure 5 — Two-step traversal
+# ---------------------------------------------------------------------------
+
+def fig_two_step(out: Path) -> Path:
+    """advil  ->  {docs containing advil}  ->  {other terms in those docs}"""
+    fig, ax = _setup_ax(figsize=(11, 5.5), xlim=(0, 12), ylim=(0, 6))
+    _title(ax, "Two-step traversal: term  →  documents  →  related terms",
+           font_size=13)
+
+    # Starting term
+    _node(ax, 1.5, 3, 1.8, 0.7, "advil",
+          fill=CORAL_SOFT, edge=CORAL, font_size=12)
+
+    # Middle column: docs (foreground set)
+    docs = [4.5, 3.5, 2.5, 1.5]
+    for i, y in enumerate(docs):
+        _node(ax, 5.5, y, 1.1, 0.55, f"doc {12 + i*5}",
+              fill=TEAL_BG, edge=TEAL, font_size=9.5)
+
+    # Right column: related terms
+    related = [
+        ("motrin",    9.0, 4.6),
+        ("aleve",     9.0, 3.7),
+        ("ibuprofen", 9.0, 2.8),
+        ("dose",      9.0, 1.9),
+        ("relief",    9.0, 1.0),
+    ]
+    for t, x, y in related:
+        _node(ax, x, y, 1.4, 0.55, t,
+              fill=CORAL_SOFT, edge=CORAL, font_size=10)
+
+    # Arrows from advil into all docs
+    for y in docs:
+        _arrow(ax, 2.5, 3, 4.85, y, color=NAVY, lw=1.2)
+    # Arrows from docs into related terms
+    for _, _, y in related:
+        for dy in docs:
+            _arrow(ax, 6.1, dy, 8.25, y, color=GRAY, lw=0.7, head=8)
+
+    # Step labels under each gap
+    ax.text(3.4, 0.4, "Step 1: inverted index",
+            ha="center", fontsize=10, color=NAVY, fontweight="bold")
+    ax.text(7.2, 0.4, "Step 2: forward index",
+            ha="center", fontsize=10, color=NAVY, fontweight="bold")
+
+    return _save(fig, out)
+
+
+# ---------------------------------------------------------------------------
+# Figure 6 — Sentence to RDF triple
+# ---------------------------------------------------------------------------
+
+def fig_sentence_to_triple(out: Path) -> Path:
+    fig, ax = _setup_ax(figsize=(10, 4.5), xlim=(0, 10), ylim=(0, 4.5))
+    _title(ax, "From sentence to fact", font_size=13)
+
+    # The sentence with parts highlighted
+    ax.text(0.5, 3.5, "Sentence:",
+            fontsize=11, color=GRAY, fontweight="bold")
+    ax.text(0.5, 2.9,
+            "Lucy",
+            fontsize=15, color=CORAL, fontweight="bold")
+    ax.text(1.5, 2.9,
+            "is friends with",
+            fontsize=15, color=TEAL, fontweight="bold")
+    ax.text(4.4, 2.9,
+            "Charlie Brown",
+            fontsize=15, color=NAVY, fontweight="bold")
+    ax.text(6.8, 2.9, ".", fontsize=15, color=INK)
+
+    # Labels under each part
+    ax.text(0.95, 2.4, "subject", ha="center",
+            fontsize=9, color=CORAL, fontstyle="italic")
+    ax.text(2.95, 2.4, "predicate", ha="center",
+            fontsize=9, color=TEAL, fontstyle="italic")
+    ax.text(5.55, 2.4, "object", ha="center",
+            fontsize=9, color=NAVY, fontstyle="italic")
+
+    # Arrow down
+    _arrow(ax, 4, 1.95, 4, 1.45, color=GRAY, lw=2)
+
+    # The triple representation
+    _node(ax, 1.7, 0.7, 2.2, 0.6, "Lucy",
+          fill=CORAL_SOFT, edge=CORAL, font_size=11)
+    _node(ax, 5.0, 0.7, 2.2, 0.6, "is friends with",
+          fill=TEAL_BG, edge=TEAL, font_size=10)
+    _node(ax, 8.3, 0.7, 2.2, 0.6, "Charlie Brown",
+          fill="white", edge=NAVY, font_size=10)
+
+    _arrow(ax, 2.85, 0.7, 3.85, 0.7, color=GRAY, lw=1.2, head=10)
+    _arrow(ax, 6.15, 0.7, 7.15, 0.7, color=GRAY, lw=1.2, head=10)
+
+    return _save(fig, out)
+
+
+# ---------------------------------------------------------------------------
+# Figure 7 — Hearst pattern matching
+# ---------------------------------------------------------------------------
+
+def fig_hearst_pattern(out: Path) -> Path:
+    fig, ax = _setup_ax(figsize=(11, 5), xlim=(0, 12), ylim=(0, 5))
+    _title(ax, "Hearst patterns spot \"is a\" relationships",
+           font_size=13)
+
+    # Sample sentence with highlighted pattern
+    ax.text(0.5, 3.85, "Pattern match:", fontsize=10, color=GRAY,
+            fontweight="bold")
+    ax.text(0.5, 3.2,
+            "Tools",
+            fontsize=15, color=NAVY, fontweight="bold")
+    ax.text(1.5, 3.2,
+            "such as",
+            fontsize=15, color=CORAL, fontweight="bold")
+    ax.text(3.3, 3.2,
+            "hammers",
+            fontsize=15, color=TEAL, fontweight="bold")
+    ax.text(5.0, 3.2, "and", fontsize=15, color=INK)
+    ax.text(6.0, 3.2,
+            "screwdrivers",
+            fontsize=15, color=TEAL, fontweight="bold")
+    ax.text(8.3, 3.2, "are widely used.", fontsize=14, color=GRAY)
+
+    # Pattern annotation underneath
+    ax.text(1.2, 2.65, "(hypernym)", fontsize=9,
+            color=NAVY, fontstyle="italic", ha="left")
+    ax.text(2.3, 2.65, "(trigger)", fontsize=9,
+            color=CORAL, fontstyle="italic", ha="left")
+    ax.text(3.9, 2.65, "(hyponyms)", fontsize=9,
+            color=TEAL, fontstyle="italic", ha="left")
+
+    # Arrow down
+    _arrow(ax, 6, 2.1, 6, 1.5, color=GRAY, lw=2)
+
+    # Extracted facts
+    facts = [
+        "hammer  is_a  tool",
+        "screwdriver  is_a  tool",
+    ]
+    for i, fact in enumerate(facts):
+        _node(ax, 6, 0.85 - i * 0.55 + 0.3, 4.0, 0.45, fact,
+              fill=TEAL_BG, edge=TEAL, font_size=11)
+
+    return _save(fig, out)
+
+
+# ---------------------------------------------------------------------------
+# Figure 8 — The advil moment
+# ---------------------------------------------------------------------------
+
+def fig_advil_moment(out: Path) -> Path:
+    fig, ax = _setup_ax(figsize=(11, 5), xlim=(0, 12), ylim=(0, 5))
+    _title(ax, "Discovering related terms in real time", font_size=13)
+
+    # Query
+    _node(ax, 1.5, 2.5, 2.0, 0.8, "advil",
+          fill=CORAL, edge=CORAL, text="white", font_size=14)
+
+    # Black box / SKG
+    box = FancyBboxPatch(
+        (4, 1.6), 3.5, 1.8,
+        boxstyle="round,pad=0.04,rounding_size=0.2",
+        linewidth=2, facecolor=NAVY, edgecolor=NAVY,
+    )
+    ax.add_patch(box)
+    ax.text(5.75, 2.7, "semantic", ha="center", color="white",
+            fontsize=11, fontweight="bold")
+    ax.text(5.75, 2.35, "knowledge", ha="center", color="white",
+            fontsize=11, fontweight="bold")
+    ax.text(5.75, 2.0, "graph", ha="center", color="white",
+            fontsize=11, fontweight="bold")
+
+    # Output list
+    outputs = [
+        ("motrin",     0.71, 4.4),
+        ("aleve",      0.60, 3.7),
+        ("ibuprofen",  0.47, 3.0),
+        ("tylenol",    0.38, 2.3),
+        ("naproxen",   0.31, 1.6),
+    ]
+    for term, score, y in outputs:
+        _node(ax, 9.5, y, 1.7, 0.5, term,
+              fill=TEAL_BG, edge=TEAL, font_size=10)
+        ax.text(10.7, y, f"{score:.2f}",
+                ha="left", va="center",
+                fontsize=10, color=NAVY, fontweight="bold")
+
+    # Arrows
+    _arrow(ax, 2.6, 2.5, 3.9, 2.5, color=NAVY, lw=2.2, head=14)
+    _arrow(ax, 7.6, 2.5, 8.55, 3.0, color=NAVY, lw=1.4, head=10)
+    _arrow(ax, 7.6, 2.5, 8.55, 4.4, color=NAVY, lw=1.4, head=10)
+    _arrow(ax, 7.6, 2.5, 8.55, 1.6, color=NAVY, lw=1.4, head=10)
+
+    return _save(fig, out)
+
+
+# ---------------------------------------------------------------------------
+# Figure 9 — Foreground vs background
+# ---------------------------------------------------------------------------
+
+def fig_fore_back(out: Path) -> Path:
+    fig, ax = _setup_ax(figsize=(10, 5.2), xlim=(0, 10), ylim=(0, 5.5))
+    _title(ax, "Foreground vs. background", font_size=13)
+
+    # Big circle = background (all docs)
+    bg = Circle((5, 2.7), 2.2, facecolor=GRAY_SOFT, edgecolor=GRAY, linewidth=2)
+    ax.add_patch(bg)
+    ax.text(5, 4.5, "background  (all documents)",
+            ha="center", fontsize=11, color=NAVY, fontweight="bold")
+
+    # Smaller circle = foreground (docs matching query)
+    fg = Circle((5, 2.7), 1.0, facecolor=CORAL_SOFT, edgecolor=CORAL, linewidth=2)
+    ax.add_patch(fg)
+    ax.text(5, 2.7, "foreground", ha="center", va="center",
+            fontsize=11, color=CORAL, fontweight="bold")
+    ax.text(5, 2.35, "(docs matching 'advil')", ha="center", va="center",
+            fontsize=9, color=CORAL, fontstyle="italic")
+
+    # Annotation labels with leader lines
+    # "motrin" — appears more in foreground than background → high score
+    ax.text(0.6, 1.5,
+            "'motrin' appears\nway more often in\nforeground than\nbackground.\n→ high score",
+            fontsize=10, color=TEAL, va="top")
+    _arrow(ax, 2.2, 2.4, 4.05, 2.65, color=TEAL, lw=1.2, head=10)
+
+    # "the" — appears about evenly → near zero
+    ax.text(7.5, 1.5,
+            "'the' appears about\nequally in both.\n→ near-zero score",
+            fontsize=10, color=GRAY, va="top")
+    _arrow(ax, 7.45, 2.3, 5.95, 2.65, color=GRAY, lw=1.2, head=10)
+
+    return _save(fig, out)
+
+
+# ---------------------------------------------------------------------------
+# Figure 10 — Bar chart of relatedness scores
+# ---------------------------------------------------------------------------
+
+def fig_relatedness_bars(out: Path) -> Path:
+    fig, ax = plt.subplots(figsize=(8, 4.5))
+    terms = ["advil", "motrin", "aleve", "ibuprofen", "tylenol",
+             "naproxen", "acetaminophen"]
+    scores = [0.71, 0.60, 0.47, 0.38, 0.33, 0.31, 0.18]
+    colors_ = [CORAL] + [TEAL] * (len(terms) - 1)
+
+    terms_rev = terms[::-1]
+    scores_rev = scores[::-1]
+    colors_rev = colors_[::-1]
+
+    bars = ax.barh(terms_rev, scores_rev, color=colors_rev, edgecolor="white",
+                   linewidth=1.5)
+    for bar, val in zip(bars, scores_rev):
+        ax.text(val + 0.012, bar.get_y() + bar.get_height() / 2,
+                f"{val:.2f}",
+                va="center", fontsize=10, color=NAVY, fontweight="bold")
+
+    ax.set_xlim(0, 0.85)
+    ax.set_xlabel("relatedness score",
+                  fontsize=10, color=NAVY, labelpad=10)
+    ax.set_title("Terms most related to 'advil'  (health corpus)",
+                 fontsize=12, color=NAVY, pad=14, fontweight="bold")
+    for s in ("top", "right"):
+        ax.spines[s].set_visible(False)
+    ax.spines["bottom"].set_color(GRAY)
+    ax.spines["left"].set_color(GRAY)
+    ax.tick_params(colors=GRAY)
+    ax.set_axisbelow(True)
+    ax.grid(axis="x", linestyle=":", color=GRAY, alpha=0.4)
+
+    plt.tight_layout()
+    return _save(fig, out)
+
+
+# ---------------------------------------------------------------------------
+# Figure 11 — The full pipeline
+# ---------------------------------------------------------------------------
+
+def fig_pipeline(out: Path) -> Path:
+    fig, ax = _setup_ax(figsize=(11, 4), xlim=(0, 12), ylim=(0, 4))
+    _title(ax, "The chapter, on one page", font_size=13)
+
+    steps = [
+        ("Your\ncontent",        1.2, TEAL_BG,    TEAL),
+        ("Inverted +\nforward\nindexes", 3.6, TEAL_BG, TEAL),
+        ("Semantic\nknowledge\ngraph",   6.0, CORAL_SOFT, CORAL),
+        ("Smarter\nqueries",     8.4, CORAL_SOFT, CORAL),
+        ("Better\nresults",      10.7, "white",   NAVY),
+    ]
+    for (label, x, fill, edge) in steps:
+        _node(ax, x, 2, 1.7, 1.3, label,
+              fill=fill, edge=edge, font_size=10.5)
+
+    for i in range(len(steps) - 1):
+        x1 = steps[i][1] + 0.95
+        x2 = steps[i + 1][1] - 0.95
+        _arrow(ax, x1, 2, x2, 2, color=NAVY, lw=2, head=14)
+
+    ax.text(6, 0.35,
+            "Each arrow is something Chapter 5 walks you through.",
+            ha="center", fontsize=10, color=GRAY, fontstyle="italic")
+
+    return _save(fig, out)
+
+
+# ---------------------------------------------------------------------------
+# Build all
+# ---------------------------------------------------------------------------
+
+FIGURES = {
+    "fig01_sample_kg":         fig_sample_kg,
+    "fig02_three_ways":        fig_three_ways,
+    "fig03_inverted_index":    fig_inverted_index,
+    "fig04_forward_index":     fig_forward_index,
+    "fig05_two_step":          fig_two_step,
+    "fig06_sentence_triple":   fig_sentence_to_triple,
+    "fig07_hearst_pattern":    fig_hearst_pattern,
+    "fig08_advil_moment":      fig_advil_moment,
+    "fig09_fore_back":         fig_fore_back,
+    "fig10_relatedness_bars":  fig_relatedness_bars,
+    "fig11_pipeline":          fig_pipeline,
+}
+
+
+def build_all(out_dir: Path) -> dict[str, Path]:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    paths = {}
+    for name, fn in FIGURES.items():
+        path = out_dir / f"{name}.png"
+        fn(path)
+        paths[name] = path
+    return paths
+
+
+if __name__ == "__main__":
+    import sys
+    out = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("graphics")
+    paths = build_all(out)
+    for name, p in paths.items():
+        print(f"{name}: {p}  ({p.stat().st_size:,} bytes)")
